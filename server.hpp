@@ -22,6 +22,7 @@ class Server : public QObject{
     private slots:
         void reset_election_handler();
         void new_tcp_connection_handler();
+        void heartbeat_handler();
         void read_incoming_stream();
         void read_incoming_datagram();
 
@@ -39,14 +40,14 @@ class Server : public QObject{
 
         // Persistent state
         quint16 current_term = 0;
-        qint16 voted_for;
+        qint16 voted_for = -1;
         QVector<QPair<QString, quint16>> log;
         QStringList chat_history;
 
         // Volatile state
         quint16 commit_index = 0;
         quint16 last_applied = 0;
-        server_state state;
+        server_state state = follower;
 
         // Volatile state on leaders
         QMap<quint16, quint16> next_index;
