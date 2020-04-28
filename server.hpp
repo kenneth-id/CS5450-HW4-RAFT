@@ -38,6 +38,7 @@ class Server : public QObject{
         quint16 max_udp_port;
         quint16 my_udp_port;
         quint16 num_servers;
+        quint16 majority;
 
         // Persistent state
         quint16 current_term = 0;
@@ -49,6 +50,8 @@ class Server : public QObject{
         quint16 commit_index = 0;
         quint16 last_applied = 0;
         server_state state = follower;
+        qint16 cur_leader = -1;
+        quint16 num_votes_for_me =0; //Used for 
 
         // Volatile state on leaders
         QMap<quint16, quint16> next_index;
@@ -60,4 +63,18 @@ class Server : public QObject{
         // Utility functions
         QString get_string_from_datagram(datagram data);
         bool broadcast_requestVote();
+
+        // RPC handling functions
+        void requestVote_RPC_handler(datagram rpc);
+        void requestVoteACK_RPC_handler(datagram rpc);
+
+        // RPC handling utility functions
+        qint16 send_requestVote_RPC_response(bool success, quint16 port);
+        void maybe_step_down(quint16 remote_term);
+        void advance_term(quint16 remote_term);
+
+        // State change updates utility function 
+        void become_follower();
+        void become_candidate();
+        void become_leader();
 };

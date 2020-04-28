@@ -6,6 +6,7 @@ Server::Server(){
     QString port = QCoreApplication::arguments()[3];
     max_udp_port = UDP_ROOT + n.toInt() - 1;
     num_servers = n.toInt();
+    majority = qCeil(num_servers/2);
 
     tcp_server = new QTcpServer(this);
     tcp_server->listen(QHostAddress("127.0.0.1"), port.toUInt());
@@ -67,16 +68,14 @@ bool Server::broadcast_requestVote(){
 }
 
 void Server::reset_election_handler(){
-    state = candidate;
-    current_term++;
-    voted_for = my_udp_port;
-    reset_election_timer->start(QRandomGenerator::global()->bounded(150,350));
-    broadcast_requestVote();
-
+    if(state != leader){
+        become_candidate();
+    }
+    else{
+        reset_election_timer->start(QRandomGenerator::global()->bounded(150,350));
+    }
     // TODO: Handle in read incoming datagram
-    // If votes received from majority of servers: become leader
     // If AppendEntries RPC received from new leader: convert to follower
-    // If election timeout elapses: start new election
 }
 
 void Server::new_tcp_connection_handler(){
@@ -135,10 +134,12 @@ void Server::read_incoming_datagram(){
         case appendEntries:
             break;
         case requestVote:
+            requestVote_RPC_handler(incoming_datagram);
             break;
         case appendEntriesACK:
             break;
         case requestVoteACK:
+            requestVoteACK_RPC_handler(incoming_datagram);
             break;
         default:
             qDebug() << "ERROR: Incoming datagram type invalid";
@@ -148,6 +149,52 @@ void Server::read_incoming_datagram(){
     else{
         qDebug() << "Failed to read datagram";
     }
+}
+
+void Server::requestVote_RPC_handler(datagram rpc){
+    uint16_t candidate_term = rpc.term;
+    uint8_t candidate_id = rpc.id;
+    uint16_t candidate_last_log_index = rpc.log_index;
+    uint16_t candidate_last_log_term = rpc.log_term;
+
+    maybe_step_down(candidate_term);
+
+    if(candidate_term < current_term){
+        send_requestVote_RPC_response(false, candidate_id);
+    }
+    else{
+        if((voted_for == -1 || voted_for == candidate_id) && candidate_last_log_index >= log.length() ){
+            send_requestVote_RPC_response(true, candidate_id);
+            voted_for = candidate_term;
+        }
+        else{
+            send_requestVote_RPC_response(false, candidate_id);
+        }
+    }
+}
+
+void Server::requestVoteACK_RPC_handler(datagram rpc){
+    uint16_t remote_term = rpc.term;
+    bool vote_granted = rpc.success_ack;
+
+    maybe_step_down(remote_term);
+
+    if(state == candidate && current_term == remote_term && vote_granted){
+        num_votes_for_me++;
+
+        if(num_votes_for_me > majority){
+            become_leader();
+        }
+    }
+}
+
+qint16 Server::send_requestVote_RPC_response(bool success, quint16 port){
+    datagram to_send = {
+        .term_ack = current_term,
+        .success_ack = success
+    };
+
+    return send_datagram(to_send, port);
 }
 
 qint16 Server::send_datagram(datagram data, quint16 port){
@@ -163,4 +210,47 @@ qint16 Server::send_datagram(datagram data, quint16 port){
 
 QString Server::get_string_from_datagram(datagram data){
 
+}
+
+void Server::maybe_step_down(quint16 remote_term){
+    if(remote_term > current_term){
+        advance_term(remote_term);
+        become_follower();
+    }
+}
+
+void Server::advance_term(quint16 term){
+    current_term = term;
+    voted_for = -1;
+}
+
+void Server::become_follower(){
+    state = follower;
+    next_index.clear();
+    match_index.clear();
+    cur_leader = -1;
+    num_votes_for_me = 0;
+    reset_election_timer->start(QRandomGenerator::global()->bounded(150,350));
+}
+
+void Server::become_candidate(){
+    state = candidate;
+    advance_term(++current_term);
+    voted_for = my_udp_port;
+    num_votes_for_me++;
+    cur_leader = -1;
+    reset_election_timer->start(QRandomGenerator::global()->bounded(150,350));
+    broadcast_requestVote();
+}
+
+void Server::become_leader(){
+    state = leader;
+    cur_leader = my_udp_port;
+    num_votes_for_me = 0;
+    for(int i = UDP_ROOT; i <= max_udp_port; ++i){
+        if (i != my_udp_port){
+            next_index.insert(i, log.length() + 1);
+            match_index.insert(i, 0);
+        }
+    }
 }
