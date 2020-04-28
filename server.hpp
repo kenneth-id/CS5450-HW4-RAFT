@@ -37,11 +37,12 @@ class Server : public QObject{
 
         quint16 max_udp_port;
         quint16 my_udp_port;
+        quint16 num_servers;
 
         // Persistent state
         quint16 current_term = 0;
         qint16 voted_for = -1;
-        QVector<QPair<QString, quint16>> log;
+        QVector<QPair<QString, quint16>> log; //QPair is chat_string first then term
         QStringList chat_history;
 
         // Volatile state
@@ -56,6 +57,7 @@ class Server : public QObject{
         // Network functions
         qint16 send_datagram(datagram data, quint16 port);
 
-        // Utilitiy functions
+        // Utility functions
         QString get_string_from_datagram(datagram data);
+        bool broadcast_requestVote();
 };

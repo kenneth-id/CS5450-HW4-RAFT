@@ -5,6 +5,7 @@ Server::Server(){
     QString n = QCoreApplication::arguments()[2];
     QString port = QCoreApplication::arguments()[3];
     max_udp_port = UDP_ROOT + n.toInt() - 1;
+    num_servers = n.toInt();
 
     tcp_server = new QTcpServer(this);
     tcp_server->listen(QHostAddress("127.0.0.1"), port.toUInt());
@@ -37,13 +38,51 @@ Server::~Server(){
     delete(reset_election_timer);
 }
 
-void Server::reset_election_handler(){
+bool Server::broadcast_requestVote(){
+    uint16_t lastLogIndex;
+    uint16_t lastLogTerm;
 
+    if(log.length() == 0){
+        lastLogIndex = 0;
+        lastLogTerm = 0;
+    }
+    else{
+        lastLogIndex = log.length();
+        lastLogTerm = log.last().second;
+    }
+
+    datagram to_broadcast = {
+        .type = requestVote,
+        .id = my_udp_port,
+        .term = current_term,
+        .log_index = lastLogIndex,
+        .log_term = lastLogTerm,
+    };
+
+    for(int i = UDP_ROOT; i <= max_udp_port; ++i){
+        if (i != my_udp_port){
+            send_datagram(to_broadcast, i);
+        }
+    }
+}
+
+void Server::reset_election_handler(){
+    state = candidate;
+    current_term++;
+    voted_for = my_udp_port;
+    reset_election_timer->start(QRandomGenerator::global()->bounded(150,350));
+    broadcast_requestVote();
+
+    // TODO: Handle in read incoming datagram
+    // If votes received from majority of servers: become leader
+    // If AppendEntries RPC received from new leader: convert to follower
+    // If election timeout elapses: start new election
 }
 
 void Server::new_tcp_connection_handler(){
     
 }
+
 
 void Server::read_incoming_stream(){
     QByteArray input;
@@ -89,7 +128,14 @@ void Server::read_incoming_datagram(){
 }
 
 qint16 Server::send_datagram(datagram data, quint16 port){
+    qint64 size_datagram = sizeof(data);
+    char *datagram = (char *)calloc(1, size_datagram);
+    memcpy(datagram, &data, size_datagram);
 
+    qint64 err = udp_socket->writeDatagram(datagram, size_datagram, QHostAddress("127.0.0.1"), port);
+    free(datagram);
+
+    return err;
 }
 
 QString Server::get_string_from_datagram(datagram data){
