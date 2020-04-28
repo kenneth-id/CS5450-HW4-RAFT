@@ -46,7 +46,42 @@ void Server::new_tcp_connection_handler(){
 }
 
 void Server::read_incoming_stream(){
+    QByteArray input;
+    input = tcp_socket->readAll();
+    qDebug() << "Server with UDP port" << my_udp_port <<"received from proxy: " << input;
+    QString raw_msg = QString(input);
 
+    if (raw_msg.contains("msg") == true){
+        qDebug() << "Received a new message from proxy";
+
+        QString text_msg = raw_msg.split(" ")[2];
+
+        // TODO: what to do if leader? what if follower? what if candidate?
+    }
+
+    else if (raw_msg.contains("get") == true){
+        qDebug() << "Received request for chatlog from proxy";
+        // TODO: what to do if leader? what if follower? what if candidate?
+        QString api_formatted;
+        if(chat_history.isEmpty()){
+            api_formatted = "chatLog\n";
+        }
+        else{
+            QString comma_separated_log = chat_history.join(",");
+            api_formatted = "chatLog " + comma_separated_log + "\n";
+
+        }
+        tcp_socket->write(api_formatted.toUtf8());
+    }
+
+    else if (raw_msg.contains("crash") == true){
+        qDebug() << "Received crash order from proxy";
+        QCoreApplication::quit();
+    }
+
+    else{
+        qDebug() << "Received unknown API from proxy";
+    }
 }
 
 void Server::read_incoming_datagram(){
