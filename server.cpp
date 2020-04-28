@@ -80,7 +80,9 @@ void Server::reset_election_handler(){
 }
 
 void Server::new_tcp_connection_handler(){
-    
+    tcp_socket = tcp_server->nextPendingConnection();
+    connect(tcp_socket, &QAbstractSocket::disconnected,tcp_socket, &QObject::deleteLater);
+    connect(tcp_socket, &QTcpSocket::readyRead, this, &Server::read_incoming_stream);
 }
 
 
