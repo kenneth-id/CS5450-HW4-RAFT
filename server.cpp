@@ -126,7 +126,28 @@ void Server::read_incoming_stream(){
 }
 
 void Server::read_incoming_datagram(){
-    
+    datagram incoming_datagram;
+    qint64 datagram_size = udp_socket->pendingDatagramSize();
+    qint64 err = udp_socket->readDatagram((char*)&incoming_datagram, datagram_size);
+
+    if(err != -1){
+        switch (incoming_datagram.type){
+        case appendEntries:
+            break;
+        case requestVote:
+            break;
+        case appendEntriesACK:
+            break;
+        case requestVoteACK:
+            break;
+        default:
+            qDebug() << "ERROR: Incoming datagram type invalid";
+            break;
+        }
+    }
+    else{
+        qDebug() << "Failed to read datagram";
+    }
 }
 
 qint16 Server::send_datagram(datagram data, quint16 port){
