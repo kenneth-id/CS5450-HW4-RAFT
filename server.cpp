@@ -185,6 +185,48 @@ void Server::read_incoming_datagram(){
     }
 }
 
+void Server::appendEntries_RPC_handler(datagram rpc){
+
+    uint16_t leader_term = rpc.term;
+    uint8_t leader_id = rpc.id;
+    uint16_t leader_last_log_index = rpc.log_index;
+    uint16_t leader_last_log_term = rpc.log_term;
+    uint16_t leader_commit_index = rpc.commit_index;
+
+    maybe_step_down(leader_term);
+
+    if(leader_term < current_Term){
+        send_appendEntries_RPC_response(false, leader_id);
+        break;
+    }
+    else{
+        // Leader is valid
+        cur_leader = leader_id
+        reset_election_timer->start(QRandomGenerator::global()->bounded(150,350));
+    }
+
+    // Handle out of index calls
+    if(log.length() < leader_last_log_index){
+        send_appendEntries_RPC_response(false, leader_id);
+        break;
+    }
+    if(log[leader_last_log_index].second != leader_term){
+        send_appendEntries_RPC_response(false, leader_id);
+        break;
+    }
+    // We agree on the previous log term; truncate and append
+    //Truncate log
+    log = log.resize(leader_last_log_index)
+    //Add to log
+    incoming_string = QString::fromLocal8Bit(datagram.text_data, datagram.text_data_len).trimmed();
+    log.append(incoming_string, leader_term)
+    
+    if(leader_commit_index > commit_index){
+        commit_index = qMin(leader_commit_index, log.length());
+    }
+    send_appendEntries_RPC_response(true, leader_id);
+
+}
 void Server::requestVote_RPC_handler(datagram rpc){
     uint16_t candidate_term = rpc.term;
     uint8_t candidate_id = rpc.id;
@@ -200,6 +242,7 @@ void Server::requestVote_RPC_handler(datagram rpc){
         if((voted_for == -1 || voted_for == candidate_id) && candidate_last_log_index >= log.length() ){
             send_requestVote_RPC_response(true, candidate_id);
             voted_for = candidate_term;
+            // Warning: May need to reset election timer here.
         }
         else{
             send_requestVote_RPC_response(false, candidate_id);
@@ -231,6 +274,15 @@ qint16 Server::send_requestVote_RPC_response(bool success, quint16 port){
     return send_datagram(to_send, port);
 }
 
+qint16 Server::send_appendEntries_RPC_response(bool success, quint16 port){
+    datagram to_send = {
+        .term_ack = current_term,
+        .success_ack = success
+    };
+
+    return send_datagram(to_send, port);
+}
+
 qint16 Server::send_datagram(datagram data, quint16 port){
     qint64 size_datagram = sizeof(data);
     char *datagram = (char *)calloc(1, size_datagram);
@@ -240,10 +292,6 @@ qint16 Server::send_datagram(datagram data, quint16 port){
     free(datagram);
 
     return err;
-}
-
-QString Server::get_string_from_datagram(datagram data){
-
 }
 
 int Server::get_bounded_random_number(int min, int max){
