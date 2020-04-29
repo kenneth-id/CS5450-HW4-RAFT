@@ -12,6 +12,12 @@ enum server_state {
     follower
 };
 
+struct message
+{
+    QString msg_string;
+    qint16 msg_id;
+};
+
 class Server : public QObject{
     Q_OBJECT
 
@@ -43,7 +49,7 @@ class Server : public QObject{
         // Persistent state
         quint16 current_term = 0;
         qint16 voted_for = -1;
-        QVector<QPair<QString, quint16>> log; //QPair is chat_string first then term
+        QVector<QPair<message, quint16>> log; //QPair is chat_string first then term
         QStringList chat_history;
 
         // Volatile state
@@ -63,6 +69,7 @@ class Server : public QObject{
         // Utility functions
         QString get_string_from_datagram(datagram data);
         bool broadcast_requestVote();
+        int get_bounded_random_number(int min, int max);
 
         // RPC handling functions
         void requestVote_RPC_handler(datagram rpc);

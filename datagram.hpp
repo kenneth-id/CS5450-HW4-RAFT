@@ -22,6 +22,7 @@ struct datagram {
     uint16_t log_term;
     uint16_t leader_commit;
 
+    int text_data_id;
     uint16_t text_data_len;
     char text_data[MAX_MSG_LEN]; //MAX_MSG_LEN is defined to be 200
 

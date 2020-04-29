@@ -7,6 +7,9 @@ Server::Server(){
     max_udp_port = UDP_ROOT + n.toInt() - 1;
     num_servers = n.toInt();
     majority = qCeil(num_servers/2);
+    message empty_message = {.msg_string = "", .msg_id =-1};
+    QPair <message, quint16> dummy_pair(empty_message, 0);
+    log.push_back(dummy_pair);
 
     tcp_server = new QTcpServer(this);
     tcp_server->listen(QHostAddress("127.0.0.1"), port.toUInt());
@@ -25,10 +28,11 @@ Server::Server(){
 
     reset_election_timer = new QTimer(this);
     connect(reset_election_timer, &QTimer::timeout, this, &Server::reset_election_handler);
-    reset_election_timer->start(QRandomGenerator::global()->bounded(150,350));
+    reset_election_timer->start(get_bounded_random_number(150,300));
 
     heartbeat_timer = new QTimer(this);
     connect(heartbeat_timer, &QTimer::timeout, this, &Server::heartbeat_handler);
+    heartbeat_timer->start(25);
 }
 
 Server::~Server(){
@@ -43,14 +47,8 @@ bool Server::broadcast_requestVote(){
     uint16_t lastLogIndex;
     uint16_t lastLogTerm;
 
-    if(log.length() == 0){
-        lastLogIndex = 0;
-        lastLogTerm = 0;
-    }
-    else{
-        lastLogIndex = log.length();
-        lastLogTerm = log.last().second;
-    }
+    lastLogIndex = log.length();
+    lastLogTerm = log.last().second;
 
     datagram to_broadcast = {
         .type = requestVote,
@@ -67,12 +65,49 @@ bool Server::broadcast_requestVote(){
     }
 }
 
+void Server::heartbeat_handler(){
+    if(state == leader){
+        for(int i = UDP_ROOT; i <= max_udp_port; ++i){
+            if (i != my_udp_port){
+                quint16 n_index = next_index.value(i);
+
+                uint16_t prevLogIndex;
+                uint16_t prevLogTerm;
+                QByteArray byte_array;
+                uint16_t byte_size;
+                char *byte_data;
+
+                prevLogIndex = n_index - 1;
+                prevLogTerm = log.value(prevLogIndex).second;
+                // WARNING: check indexing
+                byte_array = log.value(next_index.value(i) -1).first.msg_string.toLocal8Bit();
+                byte_size = byte_array.size();
+                byte_data = byte_array.data();
+                
+                datagram to_send = {
+                    .type = appendEntries,
+                    .id = my_udp_port,
+                    .term = current_term,
+                    .log_index = prevLogIndex,
+                    .log_term = prevLogTerm,
+                    .leader_commit = commit_index,
+                    .text_data_id = log.value(next_index.value(i)-1).first.msg_id,
+                    .text_data_len = byte_size,
+                };
+                memcpy(&to_send.text_data, byte_data, byte_size);
+
+                send_datagram(to_send, i);
+            }
+        }
+    }
+}
+
 void Server::reset_election_handler(){
     if(state != leader){
         become_candidate();
     }
     else{
-        reset_election_timer->start(QRandomGenerator::global()->bounded(150,350));
+        reset_election_timer->start(get_bounded_random_number(150,300));
     }
     // TODO: Handle in read incoming datagram
     // If AppendEntries RPC received from new leader: convert to follower
@@ -95,7 +130,6 @@ void Server::read_incoming_stream(){
         qDebug() << "Received a new message from proxy";
 
         QString text_msg = raw_msg.split(" ")[2];
-
         // TODO: what to do if leader? what if follower? what if candidate?
     }
 
@@ -212,6 +246,10 @@ QString Server::get_string_from_datagram(datagram data){
 
 }
 
+int Server::get_bounded_random_number(int min, int max){
+    return min + (std::rand() % (max-min+1));
+}
+
 void Server::maybe_step_down(quint16 remote_term){
     if(remote_term > current_term){
         advance_term(remote_term);
@@ -230,7 +268,7 @@ void Server::become_follower(){
     match_index.clear();
     cur_leader = -1;
     num_votes_for_me = 0;
-    reset_election_timer->start(QRandomGenerator::global()->bounded(150,350));
+    reset_election_timer->start(get_bounded_random_number(150,300));
 }
 
 void Server::become_candidate(){
@@ -239,7 +277,7 @@ void Server::become_candidate(){
     voted_for = my_udp_port;
     num_votes_for_me++;
     cur_leader = -1;
-    reset_election_timer->start(QRandomGenerator::global()->bounded(150,350));
+    reset_election_timer->start(get_bounded_random_number(150,300));
     broadcast_requestVote();
 }
 
@@ -249,8 +287,9 @@ void Server::become_leader(){
     num_votes_for_me = 0;
     for(int i = UDP_ROOT; i <= max_udp_port; ++i){
         if (i != my_udp_port){
-            next_index.insert(i, log.length() + 1);
+            next_index.insert(i, log.length()); //WARNING: check indexing
             match_index.insert(i, 0);
         }
     }
+    heartbeat_timer->start(0);
 }
