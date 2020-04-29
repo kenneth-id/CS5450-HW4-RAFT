@@ -189,40 +189,41 @@ void Server::appendEntries_RPC_handler(datagram rpc){
 
     uint16_t leader_term = rpc.term;
     uint8_t leader_id = rpc.id;
-    uint16_t leader_last_log_index = rpc.log_index;
-    uint16_t leader_last_log_term = rpc.log_term;
-    uint16_t leader_commit_index = rpc.commit_index;
+    uint16_t leader_prev_log_index = rpc.log_index;
+    uint16_t leader_prev_log_term = rpc.log_term;
+    uint16_t leader_commit_index = rpc.leader_commit;
 
     maybe_step_down(leader_term);
 
-    if(leader_term < current_Term){
+    if(leader_term < current_term){
         send_appendEntries_RPC_response(false, leader_id);
-        break;
+        return;
     }
     else{
         // Leader is valid
-        cur_leader = leader_id
-        reset_election_timer->start(QRandomGenerator::global()->bounded(150,350));
+        cur_leader = leader_id;
+        reset_election_timer->start(get_bounded_random_number(150,300));
     }
 
     // Handle out of index calls
-    if(log.length() < leader_last_log_index){
+    if(log.length() -1 < leader_prev_log_index){ //WARNING: check the index
         send_appendEntries_RPC_response(false, leader_id);
-        break;
+        return;
     }
-    if(log[leader_last_log_index].second != leader_term){
+    if(log[leader_prev_log_index].second != leader_term){
         send_appendEntries_RPC_response(false, leader_id);
-        break;
+        return;
     }
     // We agree on the previous log term; truncate and append
     //Truncate log
-    log = log.resize(leader_last_log_index)
+    log.resize(leader_prev_log_index + 1); //WARNING: check the index
     //Add to log
-    incoming_string = QString::fromLocal8Bit(datagram.text_data, datagram.text_data_len).trimmed();
-    log.append(incoming_string, leader_term)
+    QString incoming_string = QString::fromLocal8Bit(rpc.text_data, rpc.text_data_len).trimmed();
+    message incoming_msg = {.msg_string = incoming_string, .msg_id = rpc.text_data_id};
+    log.push_back(QPair<message, quint16>(incoming_msg, leader_term));
     
     if(leader_commit_index > commit_index){
-        commit_index = qMin(leader_commit_index, log.length());
+        commit_index = qMin((int)leader_commit_index, log.length());
     }
     send_appendEntries_RPC_response(true, leader_id);
 

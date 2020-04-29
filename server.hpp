@@ -74,9 +74,11 @@ class Server : public QObject{
         // RPC handling functions
         void requestVote_RPC_handler(datagram rpc);
         void requestVoteACK_RPC_handler(datagram rpc);
+        void appendEntries_RPC_handler(datagram rpc);
 
         // RPC handling utility functions
         qint16 send_requestVote_RPC_response(bool success, quint16 port);
+        qint16 send_appendEntries_RPC_response(bool success, quint16 port);
         void maybe_step_down(quint16 remote_term);
         void advance_term(quint16 remote_term);
 
