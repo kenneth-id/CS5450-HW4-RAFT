@@ -51,6 +51,7 @@ class Server : public QObject{
         qint16 voted_for = -1;
         QVector<QPair<message, quint16>> log; //QPair is chat_string first then term
         QStringList chat_history;
+        QSet <int> applied_msg_ids;
 
         // Volatile state
         quint16 commit_index = 0;
@@ -60,8 +61,9 @@ class Server : public QObject{
         quint16 num_votes_for_me =0; //Used for 
 
         // Volatile state on leaders
-        QMap<quint16, quint16> next_index;
-        QMap<quint16, quint16> match_index;
+        QMap <quint16, quint16> next_index;
+        QMap <quint16, quint16> match_index;
+        QMap <int, quint16> replication_count;
 
         // Network functions
         qint16 send_datagram(datagram data, quint16 port);
@@ -70,15 +72,17 @@ class Server : public QObject{
         QString get_string_from_datagram(datagram data);
         bool broadcast_requestVote();
         int get_bounded_random_number(int min, int max);
+        void maybe_apply();
 
         // RPC handling functions
         void requestVote_RPC_handler(datagram rpc);
         void requestVoteACK_RPC_handler(datagram rpc);
         void appendEntries_RPC_handler(datagram rpc);
+        void appendEntriesACK_RPC_handler(datagram rpc);
 
         // RPC handling utility functions
         qint16 send_requestVote_RPC_response(bool success, quint16 port);
-        qint16 send_appendEntries_RPC_response(bool success, quint16 port);
+        qint16 send_appendEntries_RPC_response(int text_id, bool success, quint16 port);
         void maybe_step_down(quint16 remote_term);
         void advance_term(quint16 remote_term);
 
