@@ -17,7 +17,7 @@ enum datagram_type {
 struct datagram {
     datagram_type type;
     
-    uint8_t id;
+    uint16_t id;
     uint16_t term;
     uint16_t log_index;
     uint16_t log_term;

@@ -28,14 +28,15 @@ Server::Server(){
 
     reset_election_timer = new QTimer(this);
     connect(reset_election_timer, &QTimer::timeout, this, &Server::reset_election_handler);
-    reset_election_timer->start(get_bounded_random_number(150,300));
+    reset_election_timer->start(get_bounded_random_number(10000,20000));
 
     heartbeat_timer = new QTimer(this);
     connect(heartbeat_timer, &QTimer::timeout, this, &Server::heartbeat_handler);
-    heartbeat_timer->start(25);
+    heartbeat_timer->start(5000);
 }
 
 Server::~Server(){
+    qDebug () << "Destructor invoked!";
     delete(udp_socket);
     delete(tcp_server);
     delete(tcp_socket);
@@ -43,11 +44,11 @@ Server::~Server(){
     delete(reset_election_timer);
 }
 
-bool Server::broadcast_requestVote(){
+void Server::broadcast_requestVote(){
     uint16_t lastLogIndex;
     uint16_t lastLogTerm;
 
-    lastLogIndex = log.length();
+    lastLogIndex = log.length()-1;
     lastLogTerm = log.last().second;
 
     datagram to_broadcast = {
@@ -57,6 +58,8 @@ bool Server::broadcast_requestVote(){
         .log_index = lastLogIndex,
         .log_term = lastLogTerm,
     };
+
+    // debug_datagram(to_broadcast);
 
     for(int i = UDP_ROOT; i <= max_udp_port; ++i){
         if (i != my_udp_port){
@@ -99,6 +102,7 @@ void Server::heartbeat_handler(){
                 send_datagram(to_send, i);
             }
         }
+        heartbeat_timer->start(5000);
     }
     else if(state == follower){
         maybe_forward_message();
@@ -108,11 +112,12 @@ void Server::heartbeat_handler(){
 }
 
 void Server::reset_election_handler(){
+    qDebug() << my_udp_port << "reset election handler triggered";
     if(state != leader){
         become_candidate();
     }
     else{
-        reset_election_timer->start(get_bounded_random_number(150,300));
+        reset_election_timer->start(get_bounded_random_number(10000,20000));
     }
     // TODO: Handle in read incoming datagram
     // If AppendEntries RPC received from new leader: convert to follower
@@ -128,7 +133,7 @@ void Server::new_tcp_connection_handler(){
 void Server::read_incoming_stream(){
     QByteArray input;
     input = tcp_socket->readAll();
-    qDebug() << "Server with UDP port" << my_udp_port <<"received from proxy: " << input;
+    qDebug() << "Server:" << my_udp_port <<"received from proxy: " << input;
     QString raw_msg = QString(input);
 
     if (raw_msg.contains("msg") == true){
@@ -159,6 +164,7 @@ void Server::read_incoming_stream(){
             api_formatted = "chatLog " + comma_separated_log + "\n";
 
         }
+        qDebug() << api_formatted;
         tcp_socket->write(api_formatted.toUtf8());
     }
 
@@ -180,17 +186,24 @@ void Server::read_incoming_datagram(){
     if(err != -1){
         switch (incoming_datagram.type){
         case appendEntries:
+            qDebug() << my_udp_port <<" received appendEntries RPC";
             appendEntries_RPC_handler(incoming_datagram);
             break;
         case requestVote:
+            qDebug() << my_udp_port <<" received requestVote RPC";
+            // debug_datagram(incoming_datagram);
             requestVote_RPC_handler(incoming_datagram);
             break;
         case appendEntriesACK:
+            qDebug() << my_udp_port <<" received appendEntriesACK RPC";
+            appendEntriesACK_RPC_handler(incoming_datagram);
             break;
         case requestVoteACK:
+            qDebug() << my_udp_port <<" received requestVoteACK RPC";
             requestVoteACK_RPC_handler(incoming_datagram);
             break;
         case forwardedMsg:
+            qDebug() << my_udp_port <<" received forwardedMsg";
             forwardedMsg_handler(incoming_datagram);
             break;
         default:
@@ -205,7 +218,7 @@ void Server::read_incoming_datagram(){
 
 void Server::appendEntries_RPC_handler(datagram rpc){
     uint16_t leader_term = rpc.term;
-    uint8_t leader_id = rpc.id;
+    uint16_t leader_id = rpc.id;
     uint16_t leader_prev_log_index = rpc.log_index;
     uint16_t leader_prev_log_term = rpc.log_term;
     uint16_t leader_commit_index = rpc.leader_commit;
@@ -220,7 +233,7 @@ void Server::appendEntries_RPC_handler(datagram rpc){
     else{
         // Leader is valid
         cur_leader = leader_id;
-        reset_election_timer->start(get_bounded_random_number(150,300));
+        reset_election_timer->start(get_bounded_random_number(10000,20000));
     }
 
     // Handle out of index calls
@@ -251,7 +264,7 @@ void Server::appendEntries_RPC_handler(datagram rpc){
 
 void Server::appendEntriesACK_RPC_handler(datagram rpc){
     uint8_t remote_id = rpc.id;
-    uint16_t remote_term = rpc.term;
+    uint16_t remote_term = rpc.term_ack;
     bool success = rpc.success_ack;
     int text_id = rpc.text_data_id;
 
@@ -289,7 +302,7 @@ void Server::forwardedMsg_handler(datagram rpc){
 
 void Server::requestVote_RPC_handler(datagram rpc){
     uint16_t candidate_term = rpc.term;
-    uint8_t candidate_id = rpc.id;
+    uint16_t candidate_id = rpc.id;
     uint16_t candidate_last_log_index = rpc.log_index;
     uint16_t candidate_last_log_term = rpc.log_term;
 
@@ -297,35 +310,41 @@ void Server::requestVote_RPC_handler(datagram rpc){
 
     if(candidate_term < current_term){
         send_requestVote_RPC_response(false, candidate_id);
+        qDebug() << my_udp_port <<": reply failed_1 requestVote to "<< candidate_id;
     }
     else{
-        if((voted_for == -1 || voted_for == candidate_id) && candidate_last_log_index >= log.length() ){
-            send_requestVote_RPC_response(true, candidate_id);
+        if((voted_for == -1 || voted_for == candidate_id) && candidate_last_log_index >= log.length() -1 ){
             voted_for = candidate_term;
+            send_requestVote_RPC_response(true, candidate_id);
+            qDebug() << my_udp_port <<": reply successful requestVote to "<< candidate_id;
             // Warning: May need to reset election timer here.
         }
         else{
             send_requestVote_RPC_response(false, candidate_id);
+            qDebug() << my_udp_port <<": reply failed_2 requestVote to "<< candidate_id;
         }
     }
 }
 
 void Server::requestVoteACK_RPC_handler(datagram rpc){
-    uint16_t remote_term = rpc.term;
+    uint16_t remote_term = rpc.term_ack;
     bool vote_granted = rpc.success_ack;
 
     maybe_step_down(remote_term);
 
+    // debug_datagram(rpc);
+
     if(state == candidate && current_term == remote_term && vote_granted){
+        qDebug() << "Increasing number of votes for me";
         num_votes_for_me++;
 
-        if(num_votes_for_me > majority){
+        if(num_votes_for_me >= majority){
             become_leader();
         }
     }
 }
 
-qint16 Server::send_requestVote_RPC_response(bool success, quint16 port){
+qint64 Server::send_requestVote_RPC_response(bool success, quint16 port){
     datagram to_send = {
         .type = requestVoteACK,
         .term_ack = current_term,
@@ -335,7 +354,7 @@ qint16 Server::send_requestVote_RPC_response(bool success, quint16 port){
     return send_datagram(to_send, port);
 }
 
-qint16 Server::send_appendEntries_RPC_response(int text_id, bool success, quint16 port){
+qint64 Server::send_appendEntries_RPC_response(int text_id, bool success, uint16_t port){
     datagram to_send = {
         .type = appendEntriesACK,
         .id = my_udp_port,
@@ -347,7 +366,7 @@ qint16 Server::send_appendEntries_RPC_response(int text_id, bool success, quint1
     return send_datagram(to_send, port);
 }
 
-qint16 Server::send_datagram(datagram data, quint16 port){
+qint64 Server::send_datagram(datagram data, quint16 port){
     qint64 size_datagram = sizeof(data);
     char *datagram = (char *)calloc(1, size_datagram);
     memcpy(datagram, &data, size_datagram);
@@ -360,9 +379,12 @@ qint16 Server::send_datagram(datagram data, quint16 port){
 
 void Server::maybe_apply(){
     if (commit_index > last_applied){
-        chat_history.push_back(log.value(last_applied+1).first.msg_string);
-        applied_msg_ids.insert(log.value(last_applied+1).first.msg_id, log.value(last_applied+1).first.msg_string);
+        QString text_string = log.value(last_applied+1).first.msg_string;
+        int text_id = log.value(last_applied+1).first.msg_id;
+        chat_history.push_back(text_string);
+        applied_msg_ids.insert(text_id, text_string);
         ++last_applied;
+        qDebug() << my_udp_port <<": applied "<< text_id <<" to chat_history";
     }
 }
 
@@ -405,6 +427,22 @@ void Server::maybe_ack_message(){
     }
 }
 
+void Server::debug_datagram(datagram data){
+    QString incoming_string = QString::fromLocal8Bit(data.text_data, data.text_data_len).trimmed();
+
+    qDebug() << "type: " << data.type;
+    qDebug() << "id: " << data.id;
+    qDebug() << "term: " << data.term;
+    qDebug() << "log_index: " << data.log_index;
+    qDebug() << "log_term: " << data.log_term;
+    qDebug() << "leader_commit: " << data.leader_commit;
+    qDebug() << "text_data_id: " << data.text_data_id;
+    qDebug() << "text_data_len: " << data.text_data_len;
+    qDebug() << "text_data: " << incoming_string;
+    qDebug() << "term_ack: " << data.term_ack;
+    qDebug() << "success_ack: " << data.success_ack;
+}
+
 int Server::get_bounded_random_number(int min, int max){
     return min + (std::rand() % (max-min+1));
 }
@@ -422,25 +460,28 @@ void Server::advance_term(quint16 term){
 }
 
 void Server::become_follower(){
+    qDebug() << my_udp_port <<" becomes follower!";
     state = follower;
     next_index.clear();
     match_index.clear();
     cur_leader = -1;
     num_votes_for_me = 0;
-    reset_election_timer->start(get_bounded_random_number(150,300));
+    reset_election_timer->start(get_bounded_random_number(10000,20000));
 }
 
 void Server::become_candidate(){
+    qDebug() << my_udp_port <<" becomes candidate!";
     state = candidate;
     advance_term(++current_term);
     voted_for = my_udp_port;
-    num_votes_for_me++;
+    num_votes_for_me = 1;
     cur_leader = -1;
-    reset_election_timer->start(get_bounded_random_number(150,300));
+    reset_election_timer->start(get_bounded_random_number(10000,20000));
     broadcast_requestVote();
 }
 
 void Server::become_leader(){
+    qDebug() << my_udp_port <<" becomes leader!";
     state = leader;
     cur_leader = my_udp_port;
     num_votes_for_me = 0;
