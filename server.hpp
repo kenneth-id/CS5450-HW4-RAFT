@@ -51,7 +51,7 @@ class Server : public QObject{
         qint16 voted_for = -1;
         QVector<QPair<message, quint16>> log; //QPair is chat_string first then term
         QStringList chat_history;
-        QSet <int> applied_msg_ids;
+        QMap <int, QString> applied_msg_ids;
 
         // Volatile state
         quint16 commit_index = 0;
@@ -60,6 +60,7 @@ class Server : public QObject{
         qint16 cur_leader = -1;
         quint16 num_votes_for_me =0; //Used for 
         QVector <message> forward_buffer;
+        QVector <int> message_ids_to_ack;
 
         // Volatile state on leaders
         QMap <quint16, quint16> next_index;
@@ -75,6 +76,7 @@ class Server : public QObject{
         int get_bounded_random_number(int min, int max);
         void maybe_apply();
         void maybe_forward_message();
+        void maybe_ack_message();
 
         // RPC handling functions
         void requestVote_RPC_handler(datagram rpc);

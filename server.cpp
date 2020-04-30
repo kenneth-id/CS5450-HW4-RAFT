@@ -104,6 +104,7 @@ void Server::heartbeat_handler(){
         maybe_forward_message();
     }
     maybe_apply();
+    maybe_ack_message();
 }
 
 void Server::reset_election_handler(){
@@ -136,6 +137,7 @@ void Server::read_incoming_stream(){
         int text_id = raw_msg.split(" ")[1].toInt();
         QString text_msg = raw_msg.split(" ")[2];
         message new_msg = {.msg_string = text_msg, .msg_id = text_id};
+        message_ids_to_ack.push_back(text_id);
         // TODO: what to do if leader? what if follower? what if candidate?
         if(state == leader){
             log.push_back(QPair<message, quint16>(new_msg, current_term));
@@ -359,7 +361,7 @@ qint16 Server::send_datagram(datagram data, quint16 port){
 void Server::maybe_apply(){
     if (commit_index > last_applied){
         chat_history.push_back(log.value(last_applied+1).first.msg_string);
-        applied_msg_ids.insert(log.value(last_applied+1).first.msg_id);
+        applied_msg_ids.insert(log.value(last_applied+1).first.msg_id, log.value(last_applied+1).first.msg_string);
         ++last_applied;
     }
 }
@@ -388,6 +390,17 @@ void Server::maybe_forward_message(){
         memcpy(&to_send.text_data, byte_data, byte_size);
 
         send_datagram(to_send, cur_leader);
+        }
+    }
+}
+
+void Server::maybe_ack_message(){
+    if(!message_ids_to_ack.empty()){
+        int id_to_ack = message_ids_to_ack.front();
+        if(applied_msg_ids.contains(id_to_ack)){
+            QString api_formatted = "ack " + QString(id_to_ack) + " " + applied_msg_ids.value(id_to_ack) +"\n";
+            tcp_socket->write(api_formatted.toUtf8());
+            message_ids_to_ack.pop_front();
         }
     }
 }
