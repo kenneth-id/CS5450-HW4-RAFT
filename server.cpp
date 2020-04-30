@@ -100,6 +100,10 @@ void Server::heartbeat_handler(){
             }
         }
     }
+    else if(state == follower){
+        maybe_forward_message();
+    }
+    maybe_apply();
 }
 
 void Server::reset_election_handler(){
@@ -129,8 +133,16 @@ void Server::read_incoming_stream(){
     if (raw_msg.contains("msg") == true){
         qDebug() << "Received a new message from proxy";
 
+        int text_id = raw_msg.split(" ")[1].toInt();
         QString text_msg = raw_msg.split(" ")[2];
+        message new_msg = {.msg_string = text_msg, .msg_id = text_id};
         // TODO: what to do if leader? what if follower? what if candidate?
+        if(state == leader){
+            log.push_back(QPair<message, quint16>(new_msg, current_term));
+        }
+        else{
+            forward_buffer.push_back(new_msg);
+        }
     }
 
     else if (raw_msg.contains("get") == true){
@@ -175,6 +187,9 @@ void Server::read_incoming_datagram(){
             break;
         case requestVoteACK:
             requestVoteACK_RPC_handler(incoming_datagram);
+            break;
+        case forwardedMsg:
+            forwardedMsg_handler(incoming_datagram);
             break;
         default:
             qDebug() << "ERROR: Incoming datagram type invalid";
@@ -259,7 +274,15 @@ void Server::appendEntriesACK_RPC_handler(datagram rpc){
             --next_index[remote_id];
         }
     }
+}
 
+void Server::forwardedMsg_handler(datagram rpc){
+    if(state == leader){
+        QString remote_string = QString::fromLocal8Bit(rpc.text_data, rpc.text_data_len).trimmed();
+        int text_id = rpc.text_data_id;
+        message new_msg = {.msg_string = remote_string, .msg_id = text_id};
+        log.push_back(QPair<message,int>(new_msg, text_id));
+    }
 }
 
 void Server::requestVote_RPC_handler(datagram rpc){
@@ -338,6 +361,34 @@ void Server::maybe_apply(){
         chat_history.push_back(log.value(last_applied+1).first.msg_string);
         applied_msg_ids.insert(log.value(last_applied+1).first.msg_id);
         ++last_applied;
+    }
+}
+
+void Server::maybe_forward_message(){
+    if(!forward_buffer.empty()){
+        if(cur_leader != -1){
+        message to_forward = forward_buffer.front();
+        forward_buffer.pop_front();
+
+        QByteArray byte_array;
+        uint16_t byte_size;
+        char *byte_data;
+
+        byte_array = to_forward.msg_string.toLocal8Bit();
+        byte_size = byte_array.size();
+        byte_data = byte_array.data();
+        
+        datagram to_send = {
+            .type = forwardedMsg,
+            .id = my_udp_port,
+            .term = current_term,
+            .text_data_id = to_forward.msg_id,
+            .text_data_len = byte_size,
+        };
+        memcpy(&to_send.text_data, byte_data, byte_size);
+
+        send_datagram(to_send, cur_leader);
+        }
     }
 }
 

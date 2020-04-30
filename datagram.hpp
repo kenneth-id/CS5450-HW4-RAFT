@@ -10,7 +10,8 @@ enum datagram_type {
     appendEntries=0,
     requestVote,
     appendEntriesACK,
-    requestVoteACK
+    requestVoteACK,
+    forwardedMsg
 };
 
 struct datagram {

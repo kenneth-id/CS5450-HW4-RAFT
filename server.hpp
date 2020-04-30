@@ -59,6 +59,7 @@ class Server : public QObject{
         server_state state = follower;
         qint16 cur_leader = -1;
         quint16 num_votes_for_me =0; //Used for 
+        QVector <message> forward_buffer;
 
         // Volatile state on leaders
         QMap <quint16, quint16> next_index;
@@ -73,12 +74,14 @@ class Server : public QObject{
         bool broadcast_requestVote();
         int get_bounded_random_number(int min, int max);
         void maybe_apply();
+        void maybe_forward_message();
 
         // RPC handling functions
         void requestVote_RPC_handler(datagram rpc);
         void requestVoteACK_RPC_handler(datagram rpc);
         void appendEntries_RPC_handler(datagram rpc);
         void appendEntriesACK_RPC_handler(datagram rpc);
+        void forwardedMsg_handler(datagram rpc);
 
         // RPC handling utility functions
         qint16 send_requestVote_RPC_response(bool success, quint16 port);
