@@ -100,6 +100,8 @@ void Server::heartbeat_handler(){
                 memcpy(&to_send.text_data, byte_data, byte_size);
 
                 send_datagram(to_send, i);
+                // qDebug() << my_udp_port << "Broadcast appendEntryRPC with content:";
+                // debug_datagram(to_send);
             }
         }
         heartbeat_timer->start(5000);
@@ -187,6 +189,7 @@ void Server::read_incoming_datagram(){
         switch (incoming_datagram.type){
         case appendEntries:
             qDebug() << my_udp_port <<" received appendEntries RPC";
+            // debug_datagram(incoming_datagram);
             appendEntries_RPC_handler(incoming_datagram);
             break;
         case requestVote:
@@ -196,10 +199,13 @@ void Server::read_incoming_datagram(){
             break;
         case appendEntriesACK:
             qDebug() << my_udp_port <<" received appendEntriesACK RPC";
+            // debug_datagram(incoming_datagram);
+            reset_election_timer->start(get_bounded_random_number(10000,20000));
             appendEntriesACK_RPC_handler(incoming_datagram);
             break;
         case requestVoteACK:
             qDebug() << my_udp_port <<" received requestVoteACK RPC";
+            // debug_datagram(incoming_datagram);
             requestVoteACK_RPC_handler(incoming_datagram);
             break;
         case forwardedMsg:
@@ -228,6 +234,7 @@ void Server::appendEntries_RPC_handler(datagram rpc){
 
     if(leader_term < current_term){
         send_appendEntries_RPC_response(text_id, false, leader_id);
+        qDebug() << "Sent appendEntries RPC response false_1";
         return;
     }
     else{
@@ -239,12 +246,14 @@ void Server::appendEntries_RPC_handler(datagram rpc){
     // Handle out of index calls
     if(log.length() -1 < leader_prev_log_index){ //WARNING: check the index
         send_appendEntries_RPC_response(text_id, false, leader_id);
+        qDebug() << "Sent appendEntries RPC response false_2";
         return;
     }
 
     //  Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
-    if(log[leader_prev_log_index].second != leader_term){
+    if(log[leader_prev_log_index].second != leader_prev_log_term){
         send_appendEntries_RPC_response(text_id, false, leader_id);
+        qDebug() << "Sent appendEntries RPC response false_3";
         return;
     }
     // We agree on the previous log term; truncate and append
@@ -420,7 +429,7 @@ void Server::maybe_ack_message(){
     if(!message_ids_to_ack.empty()){
         int id_to_ack = message_ids_to_ack.front();
         if(applied_msg_ids.contains(id_to_ack)){
-            QString api_formatted = "ack " + QString(id_to_ack) + " " + applied_msg_ids.value(id_to_ack) +"\n";
+            QString api_formatted = "ack " + QString::number(id_to_ack) + " " + applied_msg_ids.value(id_to_ack) +"\n";
             tcp_socket->write(api_formatted.toUtf8());
             message_ids_to_ack.pop_front();
         }
