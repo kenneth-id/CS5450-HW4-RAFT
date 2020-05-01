@@ -48,8 +48,11 @@ for f in os.listdir(tests):
                     prev = out[out_index]
                     # check if the output satisfies the requirement
                     out_data = set(out[out_index].split(','))
+                    print out_data
                     std_mandatory = set(json['mandatory'].split(','))
                     std_all = set(json['optional'].split(',')).union(std_mandatory)
+                    print std_mandatory
+                    print std_all
                     if not out_data.issubset(std_all):
                         result = False
                     if not out_data.issuperset(std_mandatory):

@@ -70,6 +70,7 @@ void Server::broadcast_requestVote(){
 
 void Server::heartbeat_handler(){
     if(state == leader){
+        qDebug() << next_index;
         for(int i = UDP_ROOT; i <= max_udp_port; ++i){
             if (i != my_udp_port){
                 quint16 n_index = next_index.value(i);
@@ -83,7 +84,7 @@ void Server::heartbeat_handler(){
                 prevLogIndex = n_index - 1;
                 prevLogTerm = log.value(prevLogIndex).second;
                 // WARNING: check indexing
-                byte_array = log.value(next_index.value(i) -1).first.msg_string.toLocal8Bit();
+                byte_array = log.value(next_index.value(i)).first.msg_string.toLocal8Bit();
                 byte_size = byte_array.size();
                 byte_data = byte_array.data();
                 
@@ -94,7 +95,7 @@ void Server::heartbeat_handler(){
                     .log_index = prevLogIndex,
                     .log_term = prevLogTerm,
                     .leader_commit = commit_index,
-                    .text_data_id = log.value(next_index.value(i)-1).first.msg_id,
+                    .text_data_id = log.value(next_index.value(i)).first.msg_id,
                     .text_data_len = byte_size,
                 };
                 memcpy(&to_send.text_data, byte_data, byte_size);
@@ -142,7 +143,7 @@ void Server::read_incoming_stream(){
         qDebug() << "Received a new message from proxy";
 
         int text_id = raw_msg.split(" ")[1].toInt();
-        QString text_msg = raw_msg.split(" ")[2];
+        QString text_msg = raw_msg.split(" ")[2].trimmed();
         message new_msg = {.msg_string = text_msg, .msg_id = text_id};
         message_ids_to_ack.push_back(text_id);
         // TODO: what to do if leader? what if follower? what if candidate?
@@ -189,7 +190,7 @@ void Server::read_incoming_datagram(){
         switch (incoming_datagram.type){
         case appendEntries:
             qDebug() << my_udp_port <<" received appendEntries RPC";
-            debug_datagram(incoming_datagram);
+            // debug_datagram(incoming_datagram);
             appendEntries_RPC_handler(incoming_datagram);
             break;
         case requestVote:
@@ -266,16 +267,17 @@ void Server::appendEntries_RPC_handler(datagram rpc){
         //Add to log
         message incoming_msg = {.msg_string = incoming_string, .msg_id = rpc.text_data_id};
         log.push_back(QPair<message, quint16>(incoming_msg, leader_term));
-        
-        if(leader_commit_index > commit_index){
-            commit_index = qMin((int)leader_commit_index, log.length());
-        }
+    }
+
+    if(leader_commit_index > commit_index){
+        qDebug() << "Advancing follower commit index!";
+        commit_index = qMin((int)leader_commit_index, log.length() -1);
     }
     send_appendEntries_RPC_response(text_id, incoming_string, true, leader_id);
 }
 
 void Server::appendEntriesACK_RPC_handler(datagram rpc){
-    uint8_t remote_id = rpc.id;
+    uint16_t remote_id = rpc.id;
     uint16_t remote_term = rpc.term_ack;
     bool success = rpc.success_ack;
     int text_id = rpc.text_data_id;
