@@ -6,7 +6,7 @@ Server::Server(){
     QString port = QCoreApplication::arguments()[3];
     max_udp_port = UDP_ROOT + n.toInt() - 1;
     num_servers = n.toInt();
-    majority = qCeil(num_servers/2);
+    majority = qFloor(num_servers/2) + 1;
     message empty_message = {.msg_string = "", .msg_id =-1};
     QPair <message, quint16> dummy_pair(empty_message, 0);
     log.push_back(dummy_pair);
@@ -28,11 +28,11 @@ Server::Server(){
 
     reset_election_timer = new QTimer(this);
     connect(reset_election_timer, &QTimer::timeout, this, &Server::reset_election_handler);
-    reset_election_timer->start(get_bounded_random_number(10000,20000));
+    reset_election_timer->start(get_bounded_random_number(150,300));
 
     heartbeat_timer = new QTimer(this);
     connect(heartbeat_timer, &QTimer::timeout, this, &Server::heartbeat_handler);
-    heartbeat_timer->start(5000);
+    heartbeat_timer->start(25);
 }
 
 Server::~Server(){
@@ -99,13 +99,12 @@ void Server::heartbeat_handler(){
                     .text_data_len = byte_size,
                 };
                 memcpy(&to_send.text_data, byte_data, byte_size);
-
                 send_datagram(to_send, i);
                 // qDebug() << my_udp_port << "Broadcast appendEntryRPC with content:";
                 // debug_datagram(to_send);
             }
         }
-        heartbeat_timer->start(5000);
+        heartbeat_timer->start(25);
     }
     else if(state == follower){
         maybe_forward_message();
@@ -120,7 +119,7 @@ void Server::reset_election_handler(){
         become_candidate();
     }
     else{
-        reset_election_timer->start(get_bounded_random_number(10000,20000));
+        reset_election_timer->start(get_bounded_random_number(150,300));
     }
     // TODO: Handle in read incoming datagram
     // If AppendEntries RPC received from new leader: convert to follower
@@ -149,6 +148,7 @@ void Server::read_incoming_stream(){
         // TODO: what to do if leader? what if follower? what if candidate?
         if(state == leader){
             log.push_back(QPair<message, quint16>(new_msg, current_term));
+            replication_count[text_id]++;
         }
         else{
             forward_buffer.push_back(new_msg);
@@ -201,7 +201,7 @@ void Server::read_incoming_datagram(){
         case appendEntriesACK:
             qDebug() << my_udp_port <<" received appendEntriesACK RPC";
             // debug_datagram(incoming_datagram);
-            reset_election_timer->start(get_bounded_random_number(10000,20000));
+            reset_election_timer->start(get_bounded_random_number(150,300));
             appendEntriesACK_RPC_handler(incoming_datagram);
             break;
         case requestVoteACK:
@@ -242,7 +242,7 @@ void Server::appendEntries_RPC_handler(datagram rpc){
     else{
         // Leader is valid
         cur_leader = leader_id;
-        reset_election_timer->start(get_bounded_random_number(10000,20000));
+        reset_election_timer->start(get_bounded_random_number(150,300));
     }
 
     // Handle out of index calls
@@ -315,6 +315,7 @@ void Server::forwardedMsg_handler(datagram rpc){
         int text_id = rpc.text_data_id;
         message new_msg = {.msg_string = remote_string, .msg_id = text_id};
         log.push_back(QPair<message,int>(new_msg, current_term));
+        replication_count[text_id]++;
     }
 }
 
@@ -331,6 +332,7 @@ void Server::requestVote_RPC_handler(datagram rpc){
         qDebug() << my_udp_port <<": reply failed_1 requestVote to "<< candidate_id;
     }
     else{
+        // Warning: It is important to implement the “up-to-date log” check exactly as described in section 5.4.
         if((voted_for == -1 || voted_for == candidate_id) && candidate_last_log_index >= log.length() -1 ){
             voted_for = candidate_term;
             send_requestVote_RPC_response(true, candidate_id);
@@ -491,7 +493,7 @@ void Server::become_follower(){
     match_index.clear();
     cur_leader = -1;
     num_votes_for_me = 0;
-    reset_election_timer->start(get_bounded_random_number(10000,20000));
+    reset_election_timer->start(get_bounded_random_number(150,300));
 }
 
 void Server::become_candidate(){
@@ -501,7 +503,7 @@ void Server::become_candidate(){
     voted_for = my_udp_port;
     num_votes_for_me = 1;
     cur_leader = -1;
-    reset_election_timer->start(get_bounded_random_number(10000,20000));
+    reset_election_timer->start(get_bounded_random_number(150,300));
     broadcast_requestVote();
 }
 
@@ -515,6 +517,7 @@ void Server::become_leader(){
     while(!forward_buffer.empty()){
         message to_add = forward_buffer.front();
         log.push_back(QPair<message, uint16_t>(to_add, current_term));
+        replication_count[to_add.msg_id]++;
         forward_buffer.pop_front();
     }
 
