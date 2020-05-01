@@ -314,7 +314,7 @@ void Server::forwardedMsg_handler(datagram rpc){
         QString remote_string = QString::fromLocal8Bit(rpc.text_data, rpc.text_data_len).trimmed();
         int text_id = rpc.text_data_id;
         message new_msg = {.msg_string = remote_string, .msg_id = text_id};
-        log.push_back(QPair<message,int>(new_msg, text_id));
+        log.push_back(QPair<message,int>(new_msg, current_term));
     }
 }
 
@@ -447,6 +447,7 @@ void Server::maybe_ack_message(){
             QString api_formatted = "ack " + QString::number(id_to_ack) + " " + applied_msg_ids.value(id_to_ack) +"\n";
             tcp_socket->write(api_formatted.toUtf8());
             message_ids_to_ack.pop_front();
+            qDebug() << "Sending ack of" << QString::number(id_to_ack) << "to proxy";
         }
     }
 }
@@ -509,6 +510,14 @@ void Server::become_leader(){
     state = leader;
     cur_leader = my_udp_port;
     num_votes_for_me = 0;
+
+    // Add everything from buffer into log
+    while(!forward_buffer.empty()){
+        message to_add = forward_buffer.front();
+        log.push_back(QPair<message, uint16_t>(to_add, current_term));
+        forward_buffer.pop_front();
+    }
+
     for(int i = UDP_ROOT; i <= max_udp_port; ++i){
         if (i != my_udp_port){
             next_index.insert(i, log.length()); //WARNING: check indexing

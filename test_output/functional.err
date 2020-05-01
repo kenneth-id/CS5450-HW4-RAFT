@@ -1,0 +1,4 @@
+  File "./proxy.py", line 57
+    print chatLog
+                ^
+SyntaxError: Missing parentheses in call to 'print'. Did you mean print(chatLog)?
