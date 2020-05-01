@@ -189,7 +189,7 @@ void Server::read_incoming_datagram(){
         switch (incoming_datagram.type){
         case appendEntries:
             qDebug() << my_udp_port <<" received appendEntries RPC";
-            // debug_datagram(incoming_datagram);
+            debug_datagram(incoming_datagram);
             appendEntries_RPC_handler(incoming_datagram);
             break;
         case requestVote:
@@ -229,11 +229,12 @@ void Server::appendEntries_RPC_handler(datagram rpc){
     uint16_t leader_prev_log_term = rpc.log_term;
     uint16_t leader_commit_index = rpc.leader_commit;
     int text_id = rpc.text_data_id;
+    QString incoming_string = QString::fromLocal8Bit(rpc.text_data, rpc.text_data_len).trimmed();
 
     maybe_step_down(leader_term);
 
     if(leader_term < current_term){
-        send_appendEntries_RPC_response(text_id, false, leader_id);
+        send_appendEntries_RPC_response(text_id, "", false, leader_id);
         qDebug() << "Sent appendEntries RPC response false_1";
         return;
     }
@@ -245,30 +246,32 @@ void Server::appendEntries_RPC_handler(datagram rpc){
 
     // Handle out of index calls
     if(log.length() -1 < leader_prev_log_index){ //WARNING: check the index
-        send_appendEntries_RPC_response(text_id, false, leader_id);
+        send_appendEntries_RPC_response(text_id, "", false, leader_id);
         qDebug() << "Sent appendEntries RPC response false_2";
         return;
     }
 
     //  Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
     if(log[leader_prev_log_index].second != leader_prev_log_term){
-        send_appendEntries_RPC_response(text_id, false, leader_id);
+        send_appendEntries_RPC_response(text_id, "", false, leader_id);
         qDebug() << "Sent appendEntries RPC response false_3";
         return;
     }
     // We agree on the previous log term; truncate and append
     //Truncate log
     // WARNING: Should'nt there be an if statement before truncation?
-    log.resize(leader_prev_log_index + 1); //WARNING: check the index
-    //Add to log
-    QString incoming_string = QString::fromLocal8Bit(rpc.text_data, rpc.text_data_len).trimmed();
-    message incoming_msg = {.msg_string = incoming_string, .msg_id = rpc.text_data_id};
-    log.push_back(QPair<message, quint16>(incoming_msg, leader_term));
-    
-    if(leader_commit_index > commit_index){
-        commit_index = qMin((int)leader_commit_index, log.length());
+
+    if(incoming_string != ""){
+        log.resize(leader_prev_log_index + 1); //WARNING: check the index
+        //Add to log
+        message incoming_msg = {.msg_string = incoming_string, .msg_id = rpc.text_data_id};
+        log.push_back(QPair<message, quint16>(incoming_msg, leader_term));
+        
+        if(leader_commit_index > commit_index){
+            commit_index = qMin((int)leader_commit_index, log.length());
+        }
     }
-    send_appendEntries_RPC_response(text_id, true, leader_id);
+    send_appendEntries_RPC_response(text_id, incoming_string, true, leader_id);
 }
 
 void Server::appendEntriesACK_RPC_handler(datagram rpc){
@@ -276,26 +279,30 @@ void Server::appendEntriesACK_RPC_handler(datagram rpc){
     uint16_t remote_term = rpc.term_ack;
     bool success = rpc.success_ack;
     int text_id = rpc.text_data_id;
+    QString incoming_string = QString::fromLocal8Bit(rpc.text_data, rpc.text_data_len).trimmed();
 
     maybe_step_down(remote_term);
 
     if(state == leader && remote_term == current_term){
         if(success){
-            ++next_index[remote_id];
-            ++match_index[remote_id];
-            ++replication_count[text_id];
+            if(incoming_string != ""){
+                ++next_index[remote_id];
+                ++match_index[remote_id];
+                ++replication_count[text_id];
 
-            if(replication_count[text_id] >= majority){
-                // If there exists an N such that N > commitIndex, a majority
-                // of matchIndex[i] ≥ N, and log[N].term == currentTerm:
-                // set commitIndex = N
-                // WARNING: Is this the same? because we only have 1 new entry at a time.
-                commit_index = qMin(commit_index + 1, log.length() - 1);
-                maybe_apply();
+                if(replication_count[text_id] >= majority){
+                    // If there exists an N such that N > commitIndex, a majority
+                    // of matchIndex[i] ≥ N, and log[N].term == currentTerm:
+                    // set commitIndex = N
+                    // WARNING: Is this the same? because we only have 1 new entry at a time.
+                    commit_index = qMin(commit_index + 1, log.length() - 1);
+                    maybe_apply();
+                }
             }
+            
         }
         else{
-            --next_index[remote_id];
+            next_index[remote_id] = qMax(next_index[remote_id] - 1, 1);
         }
     }
 }
@@ -363,14 +370,20 @@ qint64 Server::send_requestVote_RPC_response(bool success, quint16 port){
     return send_datagram(to_send, port);
 }
 
-qint64 Server::send_appendEntries_RPC_response(int text_id, bool success, uint16_t port){
+qint64 Server::send_appendEntries_RPC_response(int text_id, QString text_string, bool success, uint16_t port){
+    QByteArray byte_array = text_string.toLocal8Bit();
+    uint16_t byte_size = byte_array.size();
+    char *byte_data = byte_array.data();
+
     datagram to_send = {
         .type = appendEntriesACK,
         .id = my_udp_port,
         .text_data_id = text_id,
+        .text_data_len = byte_size,
         .term_ack = current_term,
         .success_ack = success,
     };
+    memcpy(&to_send.text_data, byte_data, byte_size);
 
     return send_datagram(to_send, port);
 }

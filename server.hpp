@@ -88,7 +88,7 @@ class Server : public QObject{
 
         // RPC handling utility functions
         qint64 send_requestVote_RPC_response(bool success, uint16_t port);
-        qint64 send_appendEntries_RPC_response(int text_id, bool success, uint16_t port);
+        qint64 send_appendEntries_RPC_response(int text_id, QString text_string, bool success, uint16_t port);
         void maybe_step_down(uint16_t remote_term);
         void advance_term(uint16_t remote_term);
 
