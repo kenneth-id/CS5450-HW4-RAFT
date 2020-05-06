@@ -97,6 +97,7 @@ void Server::heartbeat_handler(){
                     .leader_commit = commit_index,
                     .text_data_id = log.value(next_index.value(i)).first.msg_id,
                     .text_data_len = byte_size,
+                    .msg_term = log.value(next_index.value(i)).second
                 };
                 memcpy(&to_send.text_data, byte_data, byte_size);
                 send_datagram(to_send, i);
@@ -229,6 +230,8 @@ void Server::appendEntries_RPC_handler(datagram rpc){
     uint16_t leader_prev_log_index = rpc.log_index;
     uint16_t leader_prev_log_term = rpc.log_term;
     uint16_t leader_commit_index = rpc.leader_commit;
+    uint16_t msg_term = rpc.msg_term;
+
     int text_id = rpc.text_data_id;
     QString incoming_string = QString::fromLocal8Bit(rpc.text_data, rpc.text_data_len).trimmed();
 
@@ -248,14 +251,16 @@ void Server::appendEntries_RPC_handler(datagram rpc){
     // Handle out of index calls
     if(log.length() -1 < leader_prev_log_index){ //WARNING: check the index
         send_appendEntries_RPC_response(text_id, "", false, leader_id);
-        qDebug() << "Sent appendEntries RPC response false_2";
+        qDebug() << my_udp_port <<"Sent appendEntries RPC response false_2";
         return;
     }
 
     //  Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
     if(log[leader_prev_log_index].second != leader_prev_log_term){
         send_appendEntries_RPC_response(text_id, "", false, leader_id);
-        qDebug() << "Sent appendEntries RPC response false_3";
+        qDebug() << "my previous log index term" << log[leader_prev_log_index].second;
+        qDebug() << "leader prev log term" << leader_prev_log_term;
+        qDebug() << my_udp_port <<"Sent appendEntries RPC response false_3";
         return;
     }
     // We agree on the previous log term; truncate and append
@@ -266,7 +271,7 @@ void Server::appendEntries_RPC_handler(datagram rpc){
         log.resize(leader_prev_log_index + 1); //WARNING: check the index
         //Add to log
         message incoming_msg = {.msg_string = incoming_string, .msg_id = rpc.text_data_id};
-        log.push_back(QPair<message, quint16>(incoming_msg, leader_term));
+        log.push_back(QPair<message, quint16>(incoming_msg, msg_term));
     }
 
     if(leader_commit_index > commit_index){

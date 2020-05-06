@@ -26,6 +26,7 @@ struct datagram {
     int text_data_id;
     uint16_t text_data_len;
     char text_data[MAX_MSG_LEN]; //MAX_MSG_LEN is defined to be 200
+    uint16_t msg_term;
 
     uint16_t term_ack;
     bool success_ack;
